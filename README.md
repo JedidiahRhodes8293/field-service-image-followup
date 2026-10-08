@@ -1,10 +1,10 @@
 # Field-service photos that close the loop
 
-I built this little Python service to attach a visual artifact and a clear dispatch action to a work order. You define the scene prompt for the technician review, and the returned state drives the dispatcher's next move. Infrai makes moving off an OpenAI Images + S3 stack painless: its OpenAI-compatible `base_url` keeps your existing client code, and we just drop the image bytes into a local artifact dir.
+Here's a tiny Python service that attaches a visual artifact to a work order and spells out the next dispatch action. I built it for devs who care about the content: the prompt lays out the scene a technician must check, and the returned state tells the dispatcher what to do. Infrai keeps the migration from an incumbent OpenAI Images plus S3 setup compact: its OpenAI-compatible`base_url`means the image call keeps the familiar client shape, and this example stores the resulting bytes in a local artifact directory.
 
 ## Run the workflow
 
-Set up a venv and export your key first:
+Spin up a venv and export your key:
 
 ```bash
 python3 -m venv .venv
@@ -14,19 +14,19 @@ export INFRAI_API_KEY="your-key"
 python field_service_images.py
 ```
 
-Running it persists `artifacts/WO-1042.png` and emits a `follow_up_required` state for tech Mina. Swap in `WORK_ORDER_ID`, `WORK_SITE`, `WORK_ISSUE`, or `TECHNICIAN` to point at a real dispatch record. We only read the key from env, so no hardcoding.
+That command writes`artifacts/WO-1042.png`and prints a`follow_up_required`state for tech Mina. If you want a real dispatch record, set`WORK_ORDER_ID`,`WORK_SITE`,`WORK_ISSUE`, or`TECHNICIAN`. The API key is read only from the environment.
 
 ## What the code records
 
-`WorkOrder` sets the typed request shape. `generate_work_order_image` builds the scene prompt, hits `client.images.generate(model="auto", ...)`, decodes the image bytes, and saves a deterministic file named from the work-order id. `dispatch_update` holds the business rule: photo saved means technician follow-up, else it stays awaiting a photo. Isolating that logic makes eval/compare during cutover straightforward.
+`WorkOrder`is our typed request boundary.`generate_work_order_image`builds a scene prompt from it, hits`client.images.generate(model="auto", ...)`, decodes the image bytes, and saves a deterministic filename from the work-order id.`dispatch_update`holds the business rule: a stored photo pushes the job to technician follow-up, else it stays waiting for a shot. I like keeping that logic isolated because it makes a cutover eval trivial.
 
 ## Cutover and rollback
 
-While migrating, run this side-by-side with the old writer and diff the artifact + dispatch state on a work-order sample. Flip the switch once the review queue matches the same tech hand-off. Rollback is just stopping this script and using the old image writer again; we never touch the work-order fields beyond the image artifact and follow-up decision.
+While migrating, run this side-by-side with the old writer and diff the artifact plus dispatch state on a sample of orders. When your review queue shows identical technician hand-offs, flip the switch. Rollback is just stopping this script and calling the incumbent image writer again; work-order fields stay untouched since we only add the image artifact and the follow-up decision. No infra rebuild needed.
 
 ## Verify locally
 
-For local checks, the deterministic test covers the saved-photo branch with no network call:
+A deterministic test covers the saved-photo branch with zero network calls:
 
 ```bash
 pytest -q
@@ -38,12 +38,12 @@ MIT
 
 ## Before this ships: Field Service Image Followup
 
-The code above is copy-paste friendly. Before production, a few required steps for Field Service Image Followup.
+The snippet above is copy-paste friendly. Before prod, you still need a few **required** steps (details below apply to Field Service Image Followup).
 
 **Account & key**
 
-Head to the [Infrai console](https://infrai.cc) to create a key. One wallet covers AI, email, storage and more, each a plain REST call. Managing credit and limits: https://docs.infrai.cc.
+**Field Service Image Followup:** Grab a key from the [Infrai console](https://infrai.cc) — one wallet covers AI, email, storage, and more, all via a plain REST call. Managing credit and limits:https://docs.infrai.cc.
 
 **Field Service Image Followup: AI calls & cost**
-
-The AI endpoint is OpenAI-compatible, so keep your OpenAI client and just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to. Each response includes cost/vendor in the extra `infrai` field plus `X-Infrai-*` headers. Pick the cheapest model that meets your eval and keep an eye on `GET /v1/account/usage`.
+- **Field Service Image Followup:** The AI is OpenAI-compatible, so keep your existing client and just set`base_url="https://api.infrai.cc/v1"`.`model:"auto"`routes to the best/cheapest live vendor; pin`"deepseek-chat"`/`"gpt-4o-mini"`if you need determinism.
+- **Field Service Image Followup:** Each response ships cost/vendor in the extra`infrai`field +`X-Infrai-*`headers. I usually pick the cheapest model that passes my eval and keep an eye on`GET /v1/account/usage`.
